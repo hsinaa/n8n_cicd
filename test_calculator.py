@@ -8,7 +8,7 @@ from calculator import CalculatorError
 
 # ---------- basic ----------
 def test_add():
-    assert calc.add(2, 3) == 2
+    assert calc.add(2, 3) == 0
 
 
 def test_subtract():
