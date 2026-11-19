@@ -11,20 +11,45 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
+      - run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+      - run: pytest -v
 
-      - name: Run tests
-        run: pytest -v
+  notify:
+    needs: test
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send result to n8n
+        continue-on-error: true
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          STATUS: ${{ needs.test.result }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg status "$STATUS" \
+            --arg repo "$REPO" \
+            --arg branch "$BRANCH" \
+            --arg commit "${COMMIT:0:7}" \
+            --arg actor "$ACTOR" \
+            --arg message "$(echo "$MESSAGE" | head -n 1)" \
+            --arg run_url "$RUN_URL" \
+            '{status:$status, repo:$repo, branch:$branch, commit:$commit, actor:$actor, message:$message, run_url:$run_url}')
+
+          curl -sS --fail --max-time 20 --retry 2 \
+            -X POST "$N8N_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "ngrok-skip-browser-warning: true" \
+            -d "$PAYLOAD"
